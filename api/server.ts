@@ -3,9 +3,11 @@ import dotenv from 'dotenv'
 import express from 'express'
 import sharp from 'sharp'
 import { fileURLToPath } from 'node:url'
+import { readFile, writeFile } from 'node:fs/promises'
 import { articleImageSlotError } from '../src/lib/articleIntegrity.ts'
 
-dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), override: true })
+const envPath = fileURLToPath(new URL('../.env', import.meta.url))
+dotenv.config({ path: envPath, override: true })
 
 const app = express()
 const port = Number(process.env.PORT ?? 8787)
@@ -131,6 +133,40 @@ function parseUploadImage(value: unknown): { key: string; body: Buffer; contentT
 function publicCosUrl(bucket: string, region: string, key: string) {
   return `https://${bucket}.cos.${region}.myqcloud.com/${key.split('/').map(encodeURIComponent).join('/')}`
 }
+
+const settingKeys = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ARTICLE_MODEL', 'IMAGE_MODEL', 'COS_SECRET_ID', 'COS_SECRET_KEY', 'COS_BUCKET', 'COS_REGION', 'COS_KEY_PREFIX'] as const
+type SettingKey = typeof settingKeys[number]
+const secretSettingKeys = new Set<SettingKey>(['OPENAI_API_KEY', 'COS_SECRET_ID', 'COS_SECRET_KEY'])
+
+function envValue(content: string, key: SettingKey) {
+  return content.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1]?.trim() || ''
+}
+
+function settingsResponse(content: string) {
+  return Object.fromEntries(settingKeys.map((key) => [key, secretSettingKeys.has(key) ? '' : envValue(content, key)]))
+}
+
+app.get('/api/settings', async (_, response) => {
+  try { response.json({ settings: settingsResponse(await readFile(envPath, 'utf8')) }) }
+  catch { response.status(500).json({ error: '无法读取本地 .env 配置' }) }
+})
+
+app.post('/api/settings', async (request, response) => {
+  const input = request.body?.settings
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return response.status(400).json({ error: 'settings 必须是配置对象' })
+  try {
+    let content = await readFile(envPath, 'utf8')
+    for (const key of settingKeys) {
+      const value = input[key]
+      if (typeof value !== 'string' || !value.trim()) continue
+      const escaped = value.trim().replace(/[\r\n]/g, '')
+      const pattern = new RegExp(`^${key}=.*$`, 'm')
+      content = pattern.test(content) ? content.replace(pattern, `${key}=${escaped}`) : `${content.trimEnd()}\n${key}=${escaped}\n`
+    }
+    await writeFile(envPath, content, 'utf8')
+    response.json({ ok: true, restartRequired: true })
+  } catch { response.status(500).json({ error: '无法保存本地 .env 配置' }) }
+})
 
 app.get('/api/health', (_, response) => {
   response.json({

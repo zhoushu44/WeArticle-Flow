@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, CheckCircle2, Clipboard, FileDown, FileText, PenLine, RotateCcw, Sparkles } from 'lucide-react'
+import { Check, CheckCircle2, Clipboard, FileDown, FileText, PenLine, RotateCcw, Settings, Sparkles, X } from 'lucide-react'
 import { replaceArticleImages } from '@/lib/articleIntegrity'
 import { emptySession, factsFor, questions, restoreSession, sectionNames, storageKey, type CandidateSlot, type WorkflowSession } from '@/lib/workflow'
 
 const stageLabels = ['一句想法', '逐题追问', '事实确认', '标题三选一', '逐段确认', '完成编辑']
+type AppSettings = Record<'OPENAI_API_KEY' | 'OPENAI_BASE_URL' | 'ARTICLE_MODEL' | 'IMAGE_MODEL' | 'COS_SECRET_ID' | 'COS_SECRET_KEY' | 'COS_BUCKET' | 'COS_REGION' | 'COS_KEY_PREFIX', string>
+const emptySettings: AppSettings = { OPENAI_API_KEY: '', OPENAI_BASE_URL: '', ARTICLE_MODEL: '', IMAGE_MODEL: '', COS_SECRET_ID: '', COS_SECRET_KEY: '', COS_BUCKET: '', COS_REGION: '', COS_KEY_PREFIX: '' }
+const settingFields: Array<{ key: keyof AppSettings; label: string; secret?: boolean; placeholder?: string }> = [
+  { key: 'OPENAI_API_KEY', label: 'OpenAI API Key', secret: true, placeholder: '留空则保留现有密钥' }, { key: 'OPENAI_BASE_URL', label: 'OpenAI Base URL' }, { key: 'ARTICLE_MODEL', label: '文章模型' }, { key: 'IMAGE_MODEL', label: '图片模型' },
+  { key: 'COS_SECRET_ID', label: 'COS Secret ID', secret: true, placeholder: '留空则保留现有密钥' }, { key: 'COS_SECRET_KEY', label: 'COS Secret Key', secret: true, placeholder: '留空则保留现有密钥' }, { key: 'COS_BUCKET', label: 'COS Bucket' }, { key: 'COS_REGION', label: 'COS Region' }, { key: 'COS_KEY_PREFIX', label: 'COS 路径前缀' },
+]
+
 const imageSlots: Array<{ slot: CandidateSlot; label: string; ratio?: string }> = [
   { slot: 'cover', label: '封面图', ratio: '2.35:1' },
   { slot: 'evidence-1', label: '证据图 1' },
@@ -28,6 +35,10 @@ export default function Home() {
   const [imageBusy, setImageBusy] = useState(false)
   const [imageError, setImageError] = useState('')
   const [imageStep, setImageStep] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settings, setSettings] = useState<AppSettings>(emptySettings)
+  const [settingsBusy, setSettingsBusy] = useState(false)
+  const [settingsMessage, setSettingsMessage] = useState('')
   const facts = useMemo(() => factsFor(session), [session])
   const titles = session.generatedTitles
   const html = session.html
@@ -38,6 +49,25 @@ export default function Home() {
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(session)) }, [session])
 
+  const openSettings = async () => {
+    setSettingsOpen(true); setSettingsBusy(true); setSettingsMessage('')
+    try {
+      const response = await fetch('/api/settings')
+      const payload = await response.json() as { settings?: AppSettings; error?: string }
+      if (!response.ok || !payload.settings) throw new Error(payload.error || '读取设置失败')
+      setSettings({ ...emptySettings, ...payload.settings })
+    } catch (error) { setSettingsMessage(error instanceof Error ? error.message : '读取设置失败') } finally { setSettingsBusy(false) }
+  }
+  const saveSettings = async () => {
+    setSettingsBusy(true); setSettingsMessage('')
+    try {
+      const response = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings }) })
+      const payload = await response.json() as { ok?: boolean; error?: string }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '保存设置失败')
+      setSettingsMessage('已保存到本机 .env。请重启 API 服务后生效。')
+      setSettings((current) => ({ ...current, OPENAI_API_KEY: '', COS_SECRET_ID: '', COS_SECRET_KEY: '' }))
+    } catch (error) { setSettingsMessage(error instanceof Error ? error.message : '保存设置失败') } finally { setSettingsBusy(false) }
+  }
   const startQuestions = () => { if (session.idea.trim()) { setQuestionOptions([]); setQuestionError(''); setCustomAnswer(''); set({ stage: 'questions' }) } }
   const extractIdea = async () => {
     if (!sourceUrl.trim()) return
@@ -135,7 +165,7 @@ export default function Home() {
   const allSelected = imageSlots.every(({ slot }) => session.selectedImages[slot] !== undefined)
 
   return <main className="workspace">
-    <header className="topbar"><div><p className="eyebrow">LOCAL ARTICLE WORKFLOW</p><h1>公众号文章工作台</h1></div><button className="reset" onClick={restart}><RotateCcw size={15}/>新建会话</button></header>
+    <header className="topbar"><div><p className="eyebrow">LOCAL ARTICLE WORKFLOW</p><h1>公众号文章工作台</h1></div><div className="top-actions"><button className="reset" onClick={openSettings}><Settings size={15}/>设置</button><button className="reset" onClick={restart}><RotateCcw size={15}/>新建会话</button></div></header>{settingsOpen && <div className="settings-backdrop" onMouseDown={() => setSettingsOpen(false)}><section className="settings-modal" onMouseDown={(event) => event.stopPropagation()}><div className="panel-head"><div><p className="label">本机配置</p><h2>服务与存储设置</h2></div><button className="icon-close" onClick={() => setSettingsOpen(false)} aria-label="关闭设置"><X size={18}/></button></div><p className="guide">配置仅保存到本机 `.env`。密钥不会回显；留空表示保留现有密钥。</p><div className="settings-fields">{settingFields.map((field) => <label key={field.key}><span>{field.label}</span><input type={field.secret ? 'password' : 'text'} value={settings[field.key]} placeholder={field.placeholder} onChange={(event) => setSettings((current) => ({ ...current, [field.key]: event.target.value }))} /></label>)}</div>{settingsMessage && <p className={settingsMessage.startsWith('已保存') ? 'upload-success' : 'image-error'}>{settingsMessage}</p>}<button className="primary" onClick={saveSettings} disabled={settingsBusy}>{settingsBusy ? '处理中…' : '保存到 .env'}</button></section></div>}
     <div className="progress">{stageLabels.map((label, index) => <span className={index <= ['idea', 'questions', 'facts', 'titles', 'sections', 'editor'].indexOf(session.stage) ? 'active' : ''} key={label}>{index + 1}. {label}</span>)}</div>
     <section className="layout"><aside className="controls">
       {session.stage === 'idea' && <section className="panel"><div className="panel-head"><div><p className="label">开始创作</p><h2>先说一句想法</h2></div><Sparkles size={20}/></div><p className="guide">可以手动输入，或粘贴公开文章/产品链接，让 AI 提炼一句想法后再修改。</p><div className="link-extract"><input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="粘贴公开网页链接（https://...）" /><button className="secondary" onClick={extractIdea} disabled={!sourceUrl.trim() || extractBusy}>{extractBusy ? 'AI 正在提炼…' : '从链接提炼想法'}</button></div>{extractError && <p className="image-error">{extractError}</p>}<textarea value={session.idea} onChange={(event) => set({ idea: event.target.value })} placeholder="用一句话描述你的产品想法" />{session.sourceContext && <><p className="guide">链接参考内容（可修改；会关联到后续全部 AI 生成）：</p><textarea className="source-context" value={session.sourceContext} onChange={(event) => set({ sourceContext: event.target.value })} placeholder="链接提取的参考内容" /></>}<button className="primary" onClick={startQuestions}>开始逐题确认</button></section>}
