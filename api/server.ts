@@ -3,10 +3,13 @@ import dotenv from 'dotenv'
 import express from 'express'
 import sharp from 'sharp'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
 import { articleImageSlotError } from '../src/lib/articleIntegrity.ts'
 
-const envPath = fileURLToPath(new URL('../.env', import.meta.url))
+const projectRoot = fileURLToPath(new URL('../', import.meta.url))
+const envPath = join(projectRoot, '.env')
+const distPath = join(projectRoot, 'dist')
 dotenv.config({ path: envPath, override: true })
 
 const app = express()
@@ -293,4 +296,7 @@ app.post('/api/upload-images', async (request, response) => {
   } catch (error) { response.status(422).json({ error: error instanceof Error ? error.message : 'COS 上传失败' }) }
 })
 
-app.listen(port, () => console.log(`本地 API：http://127.0.0.1:${port}`))
+app.use(express.static(distPath))
+app.get('/{*path}', (_, response) => response.sendFile(join(distPath, 'index.html')))
+
+app.listen(port, '0.0.0.0', () => console.log(`服务已启动：http://0.0.0.0:${port}`))
