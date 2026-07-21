@@ -12,6 +12,8 @@ export type WorkflowSession = {
   factsConfirmed: boolean[]
   generatedTitles: string[]
   selectedTitle: number | null
+  layoutId: string
+  layoutInstruction: string
   sectionIndex: number
   confirmedSections: boolean[]
   html: string
@@ -23,19 +25,19 @@ export type WorkflowSession = {
 export const storageKey = 'wechat-article-local-workflow-v2'
 
 export const questions: { key: QuestionKey; label: string; hint: string }[] = [
-  { key: 'product', label: '产品', hint: '它是什么？请用一句话说明产品或服务。' },
+  { key: 'product', label: '主题', hint: '这篇文章要讲什么主题、产品、服务或事件？' },
   { key: 'audience', label: '受众', hint: '这篇文章主要写给谁看？' },
-  { key: 'pain', label: '痛点', hint: '他们当前最想解决的麻烦是什么？' },
-  { key: 'sellingPoint', label: '卖点', hint: '为什么值得选择？写出核心优势。' },
-  { key: 'claim', label: '领取', hint: '读者如何领取、试用或下一步行动？' },
-  { key: 'risk', label: '风险', hint: '有哪些边界、限制或需要提前说明的风险？' },
-  { key: 'brand', label: '品牌', hint: '以什么品牌或账号名发布？' },
+  { key: 'pain', label: '读者问题', hint: '读者最关心的问题、误区或现实困扰是什么？' },
+  { key: 'sellingPoint', label: '核心价值', hint: '最值得读者记住的发现、观点或价值是什么？' },
+  { key: 'claim', label: '下一步', hint: '读完后希望读者理解、尝试或采取什么行动？' },
+  { key: 'risk', label: '边界', hint: '有哪些限制、争议、适用条件或风险需要说明？' },
+  { key: 'brand', label: '署名', hint: '以什么品牌、机构、作者或账号名发布？' },
 ]
 
-export const sectionNames = ['开场与核心承诺', '证据与产品价值', '接入方式与风险说明', '领取方式与结尾']
+export const sectionNames = ['开场与核心观点', '事实、发现与价值', '实际影响与边界', '行动建议与结尾']
 
 export function emptySession(): WorkflowSession {
-  return { stage: 'idea', idea: '', sourceContext: '', answers: { product: '', audience: '', pain: '', sellingPoint: '', claim: '', risk: '', brand: '' }, factsConfirmed: Array(7).fill(false), generatedTitles: [], selectedTitle: null, sectionIndex: 0, confirmedSections: Array(4).fill(false), html: '', imageCandidates: {}, selectedImages: {}, uploadedImages: {} }
+  return { stage: 'idea', idea: '', sourceContext: '', answers: { product: '', audience: '', pain: '', sellingPoint: '', claim: '', risk: '', brand: '' }, factsConfirmed: Array(7).fill(false), generatedTitles: [], selectedTitle: null, layoutId: 'green-tech-default', layoutInstruction: '', sectionIndex: 0, confirmedSections: Array(4).fill(false), html: '', imageCandidates: {}, selectedImages: {}, uploadedImages: {} }
 }
 
 export function restoreSession(value: unknown): WorkflowSession {
@@ -81,12 +83,12 @@ export function factsFor(session: WorkflowSession): Record<string, string> {
   const data = articleData(session)
   return {
     初始想法: session.idea,
-    产品: data.product,
+    主题: data.product,
     受众: data.audience.join('、'),
-    痛点: data.painPoints.join('、'),
-    核心卖点: data.solution,
-    领取方式: session.answers.claim || `私信“${data.keyword}”`,
-    风险与品牌: `${data.risks.join('；')}；${data.brand}`,
+    读者问题: data.painPoints.join('、'),
+    核心价值: data.solution,
+    下一步行动: session.answers.claim || '根据文章内容理解或采取适合自己的下一步',
+    边界与署名: `${data.risks.join('；')}；${data.brand}`,
   }
 }
 

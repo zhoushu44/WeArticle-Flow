@@ -1,0 +1,9 @@
+[
+  {
+    "id": "green-tech-default",
+    "name": "绿色科技",
+    "description": "清晰留白、绿色强调、适合产品与研究科普",
+    "instruction": "使用白色背景、深绿色标题、浅绿色信息卡，段落短而清晰；图片槽位保持原有 data-component 属性；所有样式使用内联 style。",
+    "builtin": true
+  }
+]
