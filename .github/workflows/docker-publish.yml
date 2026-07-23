@@ -38,7 +38,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=2.0
+            type=raw,value=3.0
             type=raw,value=latest
 
       - name: Build and push Docker image

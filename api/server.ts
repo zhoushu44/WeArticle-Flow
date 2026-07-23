@@ -177,16 +177,28 @@ function settingsResponse(content: string) {
   return Object.fromEntries(settingKeys.map((key) => [key, secretSettingKeys.has(key) ? '' : envValue(content, key)]))
 }
 
+async function readEnvContent() {
+  try { return await readFile(envPath, 'utf8') }
+  catch (error) {
+    if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'ENOENT') throw error
+    return settingKeys.map((key) => `${key}=${process.env[key] || ''}`).join('\n') + '\n'
+  }
+}
+
 app.get('/api/settings', async (_, response) => {
-  try { response.json({ settings: settingsResponse(await readFile(envPath, 'utf8')) }) }
+  try { response.json({ settings: settingsResponse(await readEnvContent()) }) }
   catch { response.status(500).json({ error: '无法读取本地 .env 配置' }) }
 })
 
 app.post('/api/settings', async (request, response) => {
   const input = request.body?.settings
+  // #region debug-point env-save-request
+  const reportSettingsDebug = (event: string, detail: object = {}) => void writeFile(join(projectRoot, 'trae-debug-log-env-save-failure.ndjson'), `${JSON.stringify({ timestamp: new Date().toISOString(), event, envPath, cwd: process.cwd(), ...detail })}\n`, { flag: 'a' })
+  reportSettingsDebug('request', { hasSettings: Boolean(input), keys: input && typeof input === 'object' ? Object.keys(input) : [] })
+  // #endregion debug-point env-save-request
   if (!input || typeof input !== 'object' || Array.isArray(input)) return response.status(400).json({ error: 'settings 必须是配置对象' })
   try {
-    let content = await readFile(envPath, 'utf8')
+    let content = await readEnvContent()
     for (const key of settingKeys) {
       const value = input[key]
       if (typeof value !== 'string' || !value.trim()) continue
@@ -195,8 +207,16 @@ app.post('/api/settings', async (request, response) => {
       content = pattern.test(content) ? content.replace(pattern, `${key}=${escaped}`) : `${content.trimEnd()}\n${key}=${escaped}\n`
     }
     await writeFile(envPath, content, 'utf8')
+    // #region debug-point env-save-success
+    reportSettingsDebug('success', { contentLength: content.length })
+    // #endregion debug-point env-save-success
     response.json({ ok: true, restartRequired: true })
-  } catch { response.status(500).json({ error: '无法保存本地 .env 配置' }) }
+  } catch (error) {
+    // #region debug-point env-save-error
+    reportSettingsDebug('error', { name: error instanceof Error ? error.name : 'Unknown', message: error instanceof Error ? error.message : String(error), code: typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '' })
+    // #endregion debug-point env-save-error
+    response.status(500).json({ error: '无法保存本地 .env 配置' })
+  }
 })
 
 app.get('/api/layouts', async (_, response) => {

@@ -103,7 +103,7 @@ API：http://127.0.0.1:8787
 GitHub Actions 会在推送到 `main` 或 `master` 分支后，自动构建并推送以下两个 Docker 镜像标签：
 
 ```text
-zhoushu1/wearticle-flow:2.0
+zhoushu1/wearticle-flow:3.0
 zhoushu1/wearticle-flow:latest
 ```
 
@@ -116,6 +116,7 @@ docker run -d \
   --restart unless-stopped \
   -p 8787:8787 \
   --env-file .env \
+  -v "$(pwd)/.env:/app/.env" \
   zhoushu1/wearticle-flow:latest
 ```
 
@@ -125,13 +126,13 @@ docker run -d \
 http://你的服务器地址:8787
 ```
 
-如需固定使用 `2.0` 标签，将镜像名替换为：
+如需固定使用 `3.0` 标签，将镜像名替换为：
 
 ```bash
-zhoushu1/wearticle-flow:2.0
+zhoushu1/wearticle-flow:3.0
 ```
 
-容器内服务监听 `0.0.0.0:8787`。Docker Hub 登录信息仅用于 GitHub Actions 推送，不需要写入 `.env`。
+容器内服务监听 `0.0.0.0:8787`。`-v "$(pwd)/.env:/app/.env"` 会把设置页面的修改持久化到宿主机当前目录的 `.env`；请先确保该文件存在。Docker Hub 登录信息仅用于 GitHub Actions 推送，不需要写入 `.env`。
 
 ## 验证命令
 
