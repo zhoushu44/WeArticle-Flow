@@ -51,7 +51,7 @@ export function restoreSession(value: unknown): WorkflowSession {
     factsConfirmed: Array.isArray(saved.factsConfirmed) ? saved.factsConfirmed : base.factsConfirmed,
     generatedTitles: Array.isArray(saved.generatedTitles) ? saved.generatedTitles.filter((title): title is string => typeof title === 'string') : [],
     confirmedSections: Array.isArray(saved.confirmedSections) ? saved.confirmedSections : base.confirmedSections,
-    imageCandidates: saved.imageCandidates || {},
+    imageCandidates: {}, // base64 图片数据不持久化到 localStorage，仅内存保持
     selectedImages: saved.selectedImages || {},
     uploadedImages: saved.uploadedImages || {},
   }

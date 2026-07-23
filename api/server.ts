@@ -26,6 +26,13 @@ type OpenAIImage = { b64_json?: string; url?: string }
 type UploadImage = { key: string; dataUrl: string }
 
 app.use(express.json({ limit: '45mb' }))
+// #region debug-point cos-image-preview-receiver
+app.post('/api/debug/cos-image-preview', (request, response) => {
+  const payload = JSON.stringify({ timestamp: new Date().toISOString(), ...request.body })
+  void writeFile(join(projectRoot, 'trae-debug-log-cos-image-preview.ndjson'), `${payload}\n`, { flag: 'a' })
+  response.sendStatus(204)
+})
+// #endregion debug-point cos-image-preview-receiver
 app.use((request, response, next) => {
   const origin = request.headers.origin
   if (origin === 'http://127.0.0.1:5173' || origin === 'http://localhost:5173') response.setHeader('Access-Control-Allow-Origin', origin)
@@ -67,11 +74,22 @@ const pause = (milliseconds: number) => new Promise<void>((resolve) => setTimeou
 
 async function openAI(path: string, body: object, attempt = 0): Promise<unknown> {
   const { apiKey, baseUrl } = config()
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 120_000)
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+  } catch (error) {
+    clearTimeout(timeout)
+    if (error instanceof Error && error.name === 'AbortError') throw new Error('上游服务响应超时（120 秒），请检查网络或模型可用性')
+    throw error
+  }
+  clearTimeout(timeout)
   if (response.status === 429 && attempt < 6) {
     const retryAfter = Number(response.headers.get('retry-after'))
     const fallbackDelay = Math.min(30000, 3000 * 2 ** attempt)
@@ -115,7 +133,7 @@ function parseStringOptions(content: string, key: 'titles' | 'options', count: n
 
 function parseTitles(content: string) {
   const titles = parseStringOptions(content, 'titles', 3)
-  if (titles.some((title) => title.replace(/[\s\p{P}\p{S}]/gu, '').length < 16 || title.replace(/[\s\p{P}\p{S}]/gu, '').length > 24)) throw new Error('标题模型未按要求返回 16-24 字标题')
+  if (titles.some((title) => title.replace(/[\s\p{P}\p{S}]/gu, '').length < 8 || title.replace(/[\s\p{P}\p{S}]/gu, '').length > 28)) throw new Error('标题模型未按要求返回 8-28 字标题')
   return titles
 }
 
@@ -230,14 +248,14 @@ app.post('/api/titles', async (request, response) => {
   const sourceContext = typeof request.body?.sourceContext === 'string' ? request.body.sourceContext.trim().slice(0, 12000) : ''
   if (!isFacts(facts)) return response.status(400).json({ error: 'facts 必须是事实对象' })
   try {
-    const instructions = '你是小红书爆款选题编辑，擅长把产品、科普、教育、商业、生活、文化、人物、事件和研究等不同主题转化成公众号标题。先判断内容类型，再从事实中找出最有传播价值的冲突、痛点、变化、利益、情绪或悬念；有研究时提炼反常识洞察，没有研究时绝不能强行写成论文或研究口吻。不要把事实逐字拼接成说明书式标题。标题必须短、口语、像真人会点开的内容，不要官方宣传腔。优先使用这些钩子结构但不要机械套模板：“原来真正影响___的不是___”“为什么越___，反而越___”“别再以为___，研究发现___”“___的人一定要知道”“看似___，其实最容易___”。三条标题分别采用：1）反常识冲突；2）具体人群痛点；3）悬念揭秘。标题要让读者立刻知道与自己有什么关系，同时留下一个没有完全说透的问题。禁止“赋能、重塑、引领、解锁、打造新范式、全面提升、值得关注”等空话，禁止标题党式虚假夸张、禁止虚构数字和结论。允许把论文结论做通俗化、情绪化、场景化表达，但事实边界不能变。输出严格为 JSON：{"titles":["标题1","标题2","标题3"]}。这是硬性格式，第一次就必须满足：只能有一个 JSON 对象；必须恰好 3 条字符串；每条去除标点、空格、表情后必须为 16-24 个汉字（不足 14 或超过 24 都算失败）；不得输出 Markdown、代码围栏、序号、引号包裹 JSON 之外的文字、分析过程或换行说明。生成前在内部检查三条标题的字数和三种角度，检查通过后再输出。'
+    const instructions = '你是小红书爆款选题编辑，擅长把产品、科普、教育、商业、生活、文化、人物、事件和研究等不同主题转化成公众号标题。先判断内容类型，再从事实中找出最有传播价值的冲突、痛点、变化、利益、情绪或悬念；有研究时提炼反常识洞察，没有研究时绝不能强行写成论文或研究口吻。不要把事实逐字拼接成说明书式标题。标题必须短、口语、像真人会点开的内容，不要官方宣传腔，越通俗越好，像朋友发微信一样自然。优先使用这些高点击钩子结构但不要机械套模板："原来真正影响___的不是___""为什么越___，反而越___""别再以为___，研究发现___""___的人一定要知道""看似___，其实最容易___""___搞错了___年""___的真相，90%的人不知道""一篇文章讲透___"。三条标题分别采用：1）反常识冲突；2）具体人群痛点；3）悬念揭秘。标题要让读者立刻知道与自己有什么关系，同时留下一个没有完全说透的问题。禁止"赋能、重塑、引领、解锁、打造新范式、全面提升、值得关注"等空话，禁止标题党式虚假夸张、禁止虚构数字和结论。允许把论文结论做通俗化、情绪化、场景化表达，但事实边界不能变。输出严格为 JSON：{"titles":["标题1","标题2","标题3"]}。这是硬性格式，第一次就必须满足：只能有一个 JSON 对象；必须恰好 3 条字符串；每条去除标点、空格、表情后必须为 8-28 个汉字（不足 8 或超过 28 都算失败）；不得输出 Markdown、代码围栏、序号、引号包裹 JSON 之外的文字、分析过程或换行说明。生成前在内部检查三条标题的字数和三种角度，检查通过后再输出。'
     const content = await chat(instructions, `用户确认的事实：\n${JSON.stringify(facts)}\n\n链接或研究参考内容：\n${sourceContext || '无链接，请认真理解用户逐题确认的研究事实'}\n\n只输出符合硬性格式的 JSON，不要输出任何解释。`)
     try {
       response.json({ titles: parseTitles(content) })
     } catch {
-      const repaired = await chat(instructions, `以下标题不符合要求。请完全重写，不要只增删几个字。只输出严格 JSON，不要 Markdown：{"titles":["标题1","标题2","标题3"]}。每条标题去除标点、空格和表情后必须为 14-24 个汉字；三条分别是反常识冲突、具体人群痛点、悬念揭秘。不要重复原句，不要增加事实，不要输出分析过程。\n原候选：\n${content}\n\n用户确认的事实：\n${JSON.stringify(facts)}\n\n链接或研究参考内容：\n${sourceContext || '无'}`)
+      const repaired = await chat(instructions, `以下标题不符合要求。请完全重写，不要只增删几个字。只输出严格 JSON，不要 Markdown：{"titles":["标题1","标题2","标题3"]}。每条标题去除标点、空格和表情后必须为 8-28 个汉字；三条分别是反常识冲突、具体人群痛点、悬念揭秘。越通俗越好，像朋友发微信一样自然。不要重复原句，不要增加事实，不要输出分析过程。\n原候选：\n${content}\n\n用户确认的事实：\n${JSON.stringify(facts)}\n\n链接或研究参考内容：\n${sourceContext || '无'}`)
       try { response.json({ titles: parseTitles(repaired) }) } catch {
-        const finalTitles = await chat(instructions, `只输出严格 JSON：{"titles":["标题1","标题2","标题3"]}。重新创作三条小红书式中文标题，每条去除标点和空格后必须是 16-24 个汉字，不能少于 14 个或超过 24 个。分别使用反常识冲突、具体人群痛点、悬念揭秘；不得解释，不得 Markdown，不得虚构事实。事实：${JSON.stringify(facts)}`)
+        const finalTitles = await chat(instructions, `只输出严格 JSON：{"titles":["标题1","标题2","标题3"]}。重新创作三条小红书式中文标题，每条去除标点和空格后必须是 8-28 个汉字。分别使用反常识冲突、具体人群痛点、悬念揭秘；越通俗越好，不得解释，不得 Markdown，不得虚构事实。事实：${JSON.stringify(facts)}`)
         response.json({ titles: parseTitles(finalTitles) })
       }
     }
@@ -345,13 +363,17 @@ app.post('/api/upload-images', async (request, response) => {
   try {
     const { SecretId, SecretKey, Bucket, Region } = cosConfig()
     const client = new COS({ SecretId, SecretKey })
-    const uploaded = await Promise.all(parsed.map(async (image) => {
+    response.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+    response.setHeader('Cache-Control', 'no-cache, no-transform')
+    response.setHeader('Connection', 'keep-alive')
+    await Promise.all(parsed.map(async (image) => {
       const key = [cosKeyPrefix, image!.key].filter(Boolean).join('/')
       await new Promise<void>((resolve, reject) => client.putObject({ Bucket, Region, Key: key, Body: image!.body, ContentType: image!.contentType }, (error) => error ? reject(error) : resolve()))
-      return { key: image!.key, url: publicCosUrl(Bucket, Region, key) }
+      const url = publicCosUrl(Bucket, Region, key)
+      response.write(`${JSON.stringify({ type: 'uploaded', key: image!.key, url })}\n`)
     }))
-    response.json({ images: uploaded })
-  } catch (error) { response.status(422).json({ error: error instanceof Error ? error.message : 'COS 上传失败' }) }
+    response.end()
+  } catch (error) { response.write(`${JSON.stringify({ type: 'error', error: error instanceof Error ? error.message : 'COS 上传失败' })}\n`); response.end() }
 })
 
 app.use(express.static(distPath))
